@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  api:
+    image: fastapi-workshop
+    build:
+      context: .
+    ports:
+      - 8000:8000
