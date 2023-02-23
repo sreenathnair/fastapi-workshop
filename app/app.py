@@ -1,10 +1,12 @@
-from fastapi import FastAPI, Path
+from typing import List
+
+from fastapi import FastAPI, Path, Query
 from starlette import status
 
 from app.db import Neo4JDriver, OracleDriver
 from app.model import HelloModel, Mapping, MappingResponse
 
-app = FastAPI()
+app = FastAPI(docs_url="/")
 neo4j_driver = Neo4JDriver()
 oracle_driver = OracleDriver()
 
@@ -28,9 +30,12 @@ def get_graph_mappings(
         title="UniProt accession",
         description="A UniProt accession",
         example="Q14676",
-    )
+    ),
+    chain=Query(
+        None,
+        required=False,
+    ),
 ):
-
     query = """
     MATCH
         (uniprot:UniProt {ACCESSION:$accession})<-[rel:HAS_UNIPROT_SEGMENT]-
@@ -41,34 +46,8 @@ def get_graph_mappings(
     ORDER BY
         toInteger(rel.PDB_START)
     """
-    mappings = []
-
-    for record in neo4j_driver.run_query(query, accession=accession):
-        (
-            entry_id,
-            entity_id,
-            pdb_start,
-            pdb_end,
-            unp_start,
-            unp_end,
-            struct_asym_id,
-            auth_asym_id,
-            identity,
-        ) = record
-
-        mappings.append(
-            Mapping(
-                entry_id=entry_id,
-                entity_id=entity_id,
-                pdb_start=pdb_start,
-                pdb_end=pdb_end,
-                unp_start=unp_start,
-                unp_end=unp_end,
-                struct_asym_id=struct_asym_id,
-                auth_asym_id=auth_asym_id,
-                identity=identity,
-            )
-        )
+    results = neo4j_driver.run_query(query, accession=accession)
+    mappings = prepare_mappings(results, chain_id=chain)
 
     return MappingResponse(accession=accession, mappings=mappings)
 
@@ -132,3 +111,38 @@ def get_oracle_mappings(
         )
 
     return MappingResponse(accession=accession, mappings=mappings)
+
+
+def prepare_mappings(mappings, chain_id=None) -> List[Mapping]:
+    results = []
+    for record in mappings:
+        (
+            entry_id,
+            entity_id,
+            pdb_start,
+            pdb_end,
+            unp_start,
+            unp_end,
+            struct_asym_id,
+            auth_asym_id,
+            identity,
+        ) = record
+
+        if chain_id and auth_asym_id != chain_id:
+            continue
+
+        results.append(
+            Mapping(
+                entry_id=entry_id,
+                entity_id=entity_id,
+                pdb_start=pdb_start,
+                pdb_end=pdb_end,
+                unp_start=unp_start,
+                unp_end=unp_end,
+                struct_asym_id=struct_asym_id,
+                auth_asym_id=auth_asym_id,
+                identity=identity,
+            )
+        )
+
+    return results
